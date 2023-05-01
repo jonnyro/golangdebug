@@ -1,0 +1,66 @@
+FROM ubuntu:18.04
+ARG MAKEOPTS
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get -o Acquire::ForceIPv4=true update
+
+RUN apt-get update && apt-get install -y unzip gcc-4.8 git
+
+WORKDIR /src
+
+RUN git clone --branch 8.1 https://github.com/OSGeo/proj.4.git
+WORKDIR  /src/proj.4/
+RUN apt-get update && apt-get install -y autoconf libtool
+RUN apt-get update && apt-get install -y g++-4.8
+
+RUN apt-get update && apt-get install -y pkg-config
+RUN apt-get update && apt-get install -y libsqlite3-dev sqlite3
+RUN apt-get update && apt-get install -y libtiff-dev
+RUN apt-get update && apt-get install -y libcurl4-openssl-dev
+RUN apt-get update && apt-get install -y libopenjp2-7-dev
+RUN apt-get update && apt-get install -y libbz2-dev libncurses5-dev libgdbm-dev liblzma-dev libssl-dev libreadline-dev zlib1g-dev uuid-dev
+
+
+ENV CC=gcc-4.8
+ENV CXX=g++-4.8
+RUN ./autogen.sh
+RUN ./configure
+RUN make $MAKEOPTS
+RUN make install
+WORKDIR /src
+RUN rm -rf /src/proj.4
+RUN git clone https://github.com/OSGeo/GDAL.git
+WORKDIR /src/GDAL/gdal
+RUN git checkout v3.1.4
+RUN ./configure --disable-static --with-openjpeg
+RUN make $MAKEOPTS
+RUN make install
+ENV LD_LIBRARY_PATH=/usr/local/lib
+WORKDIR /src
+RUN rm -rf /src/GDAL
+
+
+ENV VERSION=1.20.3
+ENV ARCH=amd64
+
+RUN apt-get update && apt-get install -y wget
+
+RUN wget -L "https://golang.org/dl/go${VERSION}.linux-${ARCH}.tar.gz"
+RUN tar -C /usr/local -xzf go${VERSION}.linux-${ARCH}.tar.gz
+
+ENV GOPATH=/root/go
+ENV PATH=$PATH:/usr/local/go/bin:$GOPATH/bin
+
+RUN go install -ldflags "-s -w -extldflags '-static'" github.com/go-delve/delve/cmd/dlv@latest
+
+ENV GO111MODULE=off
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+
+RUN go get github.com/lukeroth/gdal
+
+
+COPY hello.go .
+COPY go.mod .
+RUN mkdir /app
+RUN go build -gcflags "all=-N -l" -o /app/hello-app .
+
+CMD [ "dlv", "--listen=:4000", "--headless=true", "--accept-multiclient", "--api-version=2", "exec", "/app/hello-app","--","filename.tif"]
